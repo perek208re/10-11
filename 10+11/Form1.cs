@@ -1,4 +1,5 @@
-﻿using System;
+﻿using _10_11.Memento;
+using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Data;
@@ -18,12 +19,11 @@ namespace _10_11
     {
         Graphics g;
         Bitmap buf, copy_area;
-        Point StartPoint, EndPoint;
+        Point StartPoint, EndPoint, CurrentPoint;
         bool Draw, Copy;
         Pen pen = new Pen(Color.Black, 1);
         Brush brush = new SolidBrush(Color.White);
-        Stack<Bitmap> buffer = new Stack<Bitmap>();
-        Stack<String> log_buffer = new Stack<String>();
+        History history = new History();
         int x = 0, y = 0, h = 140, w = 340;
 
         public Form1()
@@ -54,9 +54,10 @@ namespace _10_11
 
         private void pictureBox1_MouseDown(object sender, MouseEventArgs e)
         {
-            buffer.Push(new Bitmap(buf));
-            log_buffer.Push(tbLog.Text);
+            history.SaveState(buf, tbLog.Text);
             StartPoint = e.Location;
+            CurrentPoint = e.Location;
+            Draw = true;
 
             if (SB_Pencil.Checked || SB_Rubber.Checked)
                 Draw = true;
@@ -78,47 +79,52 @@ namespace _10_11
 
         private void pictureBox1_MouseMove(object sender, MouseEventArgs e)
         {
-            if (SB_Pencil.Checked && Draw)
+            CurrentPoint = e.Location;
+
+            if (Draw)
             {
-                g.DrawLine(pen, StartPoint, e.Location);
-                tbLog.AppendText($"new PointF({StartPoint.X}, {StartPoint.Y})," + Environment.NewLine);
-                tbLog.AppendText($"new PointF({e.Location.X}, {e.Location.Y})," + Environment.NewLine);
-                StartPoint = e.Location;
+                if (SB_Pencil.Checked)
+                {
+                    g.DrawLine(pen, StartPoint, e.Location);
+                    StartPoint = e.Location;
+                }
+                else if (SB_Rubber.Checked)
+                {
+                    g.FillRectangle(Brushes.White, e.X, e.Y, pen.Width, pen.Width);
+                }
+                pictureBox1.Invalidate();
             }
-            else if (SB_Rubber.Checked && Draw)
-            {
-                g.FillRectangle(Brushes.White, StartPoint.X, StartPoint.Y, pen.Width, pen.Width);
-                tbLog.AppendText($"Rubber {StartPoint.X} {StartPoint.Y} {pen.Width} {pen.Width}" + Environment.NewLine);
-                StartPoint = e.Location;
-            }
-            pictureBox1.Refresh();
         }
         private void pictureBox1_MouseUp(object sender, MouseEventArgs e)
         {
-            if (SB_Line.Checked)
-            {
-                g.DrawLine(pen, StartPoint, e.Location);
-                tbLog.AppendText($"DrawLine {StartPoint.X} {StartPoint.Y} {e.Location.X} {e.Location.Y}" + Environment.NewLine);
-            }
-            else if (SB_Ellipse.Checked)
-            {
-                Point point = new Point();
-                point.X = e.X - StartPoint.X;
-                point.Y = e.Y - StartPoint.Y;
-                if (SB_FillColor.Checked)
-                {
-                    g.FillEllipse(brush, StartPoint.X, StartPoint.Y, point.X, point.Y);
-                    tbLog.AppendText($"FillEllipse {StartPoint.X} {StartPoint.Y} {point.X} {point.Y}" + Environment.NewLine);
-                }
-                g.DrawEllipse(pen, StartPoint.X, StartPoint.Y, point.X, point.Y);
-                tbLog.AppendText($"Ellipse {StartPoint.X} {StartPoint.Y} {point.X} {point.Y}" + Environment.NewLine);
-            }
-            else if (SB_Copy.Checked)
+            if (SB_Copy.Checked)
             {
                 EndPoint = e.Location;
             }
-            pictureBox1.Refresh();
+            if (!Draw) return;
+            if (SB_Line.Checked)
+            {
+                g.DrawLine(pen, StartPoint, e.Location);
+                tbLog.AppendText($"DrawLine {StartPoint.X} {StartPoint.Y} {e.X} {e.Y}" + Environment.NewLine);
+            }
+            else if (SB_Ellipse.Checked)
+            {
+                int x = Math.Min(StartPoint.X, e.X);
+                int y = Math.Min(StartPoint.Y, e.Y);
+                int w = Math.Abs(StartPoint.X - e.X);
+                int h = Math.Abs(StartPoint.Y - e.Y);
+
+                if (SB_FillColor.Checked)
+                {
+                    g.FillEllipse(brush, x, y, w, h);
+                    tbLog.AppendText($"FillEllipse {x} {y} {w} {h}" + Environment.NewLine);
+                }
+                g.DrawEllipse(pen, x, y, w, h);
+                tbLog.AppendText($"Ellipse {x} {y} {w} {h}" + Environment.NewLine);
+            }
+
             Draw = false;
+            pictureBox1.Invalidate();
         }
 
         private void hSB_PenWidht_Scroll(object sender, ScrollEventArgs e)
@@ -252,12 +258,6 @@ namespace _10_11
                 pictureBox1.Image.Save(saveFileDialog1.FileName);
             }
         }
-
-        private void Form1_KeyPress(object sender, KeyPressEventArgs e)
-        {
-
-        }
-
         private void SB_Picture_Click(object sender, EventArgs e)
         {
             if (SB_Picture.Checked)
@@ -274,42 +274,86 @@ namespace _10_11
             SB_Picture_Click(sender, e);
         }
 
+        private void pictureBox1_Paint(object sender, PaintEventArgs e)
+        {
+            if (Draw)
+            {
+                if (SB_Line.Checked)
+                {
+                    e.Graphics.DrawLine(pen, StartPoint, CurrentPoint);
+                }
+                else if (SB_Ellipse.Checked)
+                {
+                    int x = Math.Min(StartPoint.X, CurrentPoint.X);
+                    int y = Math.Min(StartPoint.Y, CurrentPoint.Y);
+                    int w = Math.Abs(StartPoint.X - CurrentPoint.X);
+                    int h = Math.Abs(StartPoint.Y - CurrentPoint.Y);
+
+                    if (SB_FillColor.Checked)
+                        e.Graphics.FillEllipse(brush, x, y, w, h);
+
+                    e.Graphics.DrawEllipse(pen, x, y, w, h);
+                }
+                else if (SB_Copy.Checked)
+                {
+                    using (Pen selectionPen = new Pen(Color.Gray))
+                    {
+                        selectionPen.DashStyle = System.Drawing.Drawing2D.DashStyle.Dash;
+
+                        int x = Math.Min(StartPoint.X, CurrentPoint.X);
+                        int y = Math.Min(StartPoint.Y, CurrentPoint.Y);
+                        int w = Math.Abs(StartPoint.X - CurrentPoint.X);
+                        int h = Math.Abs(StartPoint.Y - CurrentPoint.Y);
+
+                        e.Graphics.DrawRectangle(selectionPen, x, y, w, h);
+                    }
+                }
+            }
+        }
+
         private void scaleToolStripMenuItem1_Click(object sender, EventArgs e)
         {
             w -= 34;
             h -= 14;
             SB_Picture_Click(sender, e);
         }
-
-        private void SB_Picture_CheckedChanged(object sender, EventArgs e)
-        {
-
-        }
-
-        private void pictureBox1_Click(object sender, EventArgs e)
-        {
-
-        }
-
         private void loadToolStripMenuItem_Click(object sender, EventArgs e)
         {
-            if(openFileDialog1.ShowDialog(this) == DialogResult.OK)
+            int x = Math.Min(StartPoint.X, EndPoint.X);
+            int y = Math.Min(StartPoint.Y, EndPoint.Y);
+
+            int width = Math.Abs(StartPoint.X - EndPoint.X);
+            int height = Math.Abs(StartPoint.Y - EndPoint.Y);
+
+            if (width > 0 && height > 0)
             {
-                Bitmap Image = new Bitmap(openFileDialog1.FileName);
-                buf = new Bitmap(pictureBox1.Width, pictureBox1.Height);
-                g = Graphics.FromImage(buf);
-                g.DrawImage(Image, new Rectangle(0, 0, buf.Width, buf.Height));
-                pictureBox1.Image = buf;
-                pictureBox1.Refresh();
+                Rectangle copyRect = new Rectangle(x, y, width, height);
+                copy_area = BitmapCopy.CopyArea(buf, copyRect);
+
+                if (copy_area != null)
+                {
+                    Copy = true;
+                    tbLog.AppendText($"CopyRect {x} {y} {width} {height}" + Environment.NewLine);
+                }
+            }
+            else
+            {
+                Copy = false;
+                MessageBox.Show("Виділіть область для копіювання!");
             }
         }
 
         private void undoToolStripMenuItem_Click(object sender, EventArgs e)
         {
-            if (buffer.Count > 0)
+            ImageMemento memento = history.Undo();
+            if (memento != null)
             {
-                g.DrawImage(buffer.Pop(), 0, 0);
-                tbLog.Text = log_buffer.Pop();
+                buf = new Bitmap(memento.State);
+                g = Graphics.FromImage(buf);
+                g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+
+                pictureBox1.Image = buf;
+                tbLog.Text = memento.LogState;
                 pictureBox1.Refresh();
             }
         }
