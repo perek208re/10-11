@@ -350,6 +350,7 @@ namespace _10_11
             {
                 buf = new Bitmap(memento.State);
                 g = Graphics.FromImage(buf);
+                memento.State.Dispose();
                 g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
 
                 pictureBox1.Image = buf;
